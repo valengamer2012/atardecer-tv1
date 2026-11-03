@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"><title>Atardecer</title>
+<meta name="viewport" content="width=1920,height=1080">
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#14112b;color:#fff6ee;font-family:"Helvetica Neue",Helvetica,Arial,sans-serif}
+#sky{position:fixed;top:0;left:0;right:0;bottom:0;background:linear-gradient(180deg,#1b1a3d 0%,#4a2a63 25%,#b04e6a 50%,#f08a5d 72%,#f7c07a 86%,#1b1a3d 100%);background-size:100% 200%;animation:drift 180s linear infinite alternate}
+@keyframes drift{from{background-position:0 0}to{background-position:0 100%}}
+#clock{position:absolute;left:0;right:0;top:12vh;text-align:center;font-size:17vw;line-height:1;font-weight:200;letter-spacing:-.02em;font-variant-numeric:tabular-nums;text-shadow:0 .4vw 3vw rgba(20,10,40,.35);animation:float 90s ease-in-out infinite alternate}
+body:not(.idle) #clock{animation:none}
+@keyframes float{from{transform:translate(-6vw,-4vh)}to{transform:translate(6vw,22vh)}}
+#info{position:absolute;left:0;right:0;top:36vh;text-align:center;font-size:2.4vw;font-weight:300;transition:opacity 1.2s}
+#info span{display:inline-block;margin:0 1.2vw;opacity:.85}
+#dock{position:absolute;left:0;right:0;bottom:10vh;text-align:center;white-space:nowrap;transition:opacity 1.2s}
+.tile{display:inline-block;width:13vw;height:7.4vw;margin:0 .8vw;border-radius:1.2vw;line-height:7.4vw;font-size:1.7vw;font-weight:600;color:#fff;background:#333;opacity:.82;transition:transform .18s,opacity .18s,box-shadow .18s}
+.tile.on{transform:scale(1.14);opacity:1;box-shadow:0 0 0 .22vw #fff6ee,0 1.2vw 3vw rgba(0,0,0,.45)}
+body.idle #info,body.idle #dock{opacity:0}
+#toast{position:absolute;left:0;right:0;bottom:3vh;text-align:center;font-size:1.5vw;opacity:0;transition:opacity .4s}
+#toast.show{opacity:1}
+</style></head>
+<body>
+<div id="sky"></div>
+<div id="clock">--:--</div>
+<div id="info"><span id="date"></span><span id="wx"></span></div>
+<div id="dock"></div>
+<div id="toast"></div>
+<script>
+// ---- Ajustá esto a tu gusto ----
+var LAT = -34.61, LON = -58.38;      // ubicación para el clima (Buenos Aires)
+var IDLE_SECONDS = 45;               // segundos hasta el modo reposo
+var APPS = [                         // id = app nativa (solo modo .wgt), u = web (modo navegador)
+  {n:'Netflix',     id:'3201907018807', u:'https://www.netflix.com',     c:'#e50914'},
+  {n:'YouTube',     id:'111299001912',  u:'https://www.youtube.com/tv',  c:'#d4002a'},
+  {n:'Prime Video', id:'3201910019365', u:'https://www.primevideo.com',  c:'#0b86b8'},
+  {n:'Disney+',     id:'3201901017640', u:'https://www.disneyplus.com',  c:'#113ccf'},
+  {n:'Spotify',     id:'3201606009684', u:'https://open.spotify.com',    c:'#1a9e49'}
+];
+// --------------------------------
+var $ = function(i){return document.getElementById(i)};
+var sel = 0, idleTimer, tiles = [];
+
+APPS.forEach(function(a, i){
+  var t = document.createElement('div');
+  t.className = 'tile'; t.textContent = a.n; t.style.background = a.c;
+  $('dock').appendChild(t); tiles.push(t);
+});
+function focusTile(i){
+  sel = (i + APPS.length) % APPS.length;
+  tiles.forEach(function(t, k){ t.className = 'tile' + (k === sel ? ' on' : ''); });
+}
+focusTile(0);
+
+function pad(n){return n < 10 ? '0' + n : '' + n}
+function tick(){
+  var d = new Date();
+  $('clock').textContent = pad(d.getHours()) + ':' + pad(d.getMinutes());
+  var s = d.toLocaleDateString('es-AR', {weekday:'long', day:'numeric', month:'long'}).replace(',', '');
+  $('date').textContent = s.charAt(0).toUpperCase() + s.slice(1);
+}
+tick(); setInterval(tick, 1000);
+
+function wxText(c){
+  if (c === 0) return 'Despejado';
+  if (c <= 2) return 'Poco nublado';
+  if (c === 3) return 'Nublado';
+  if (c === 45 || c === 48) return 'Niebla';
+  if (c >= 51 && c <= 57) return 'Llovizna';
+  if (c >= 61 && c <= 67) return 'Lluvia';
+  if (c >= 71 && c <= 77) return 'Nieve';
+  if (c >= 80 && c <= 82) return 'Chaparrones';
+  if (c >= 95) return 'Tormenta';
+  return '';
+}
+function weather(){
+  fetch('https://api.open-meteo.com/v1/forecast?latitude=' + LAT + '&longitude=' + LON + '&current=temperature_2m,weather_code&timezone=auto')
+    .then(function(r){return r.json()})
+    .then(function(j){
+      var c = j.current;
+      $('wx').textContent = Math.round(c.temperature_2m) + '°  ' + wxText(c.weather_code);
+    }).catch(function(){ $('wx').textContent = ''; });
+}
+weather(); setInterval(weather, 15 * 60 * 1000);
+
+function toast(msg){
+  var t = $('toast'); t.textContent = msg; t.className = 'show';
+  setTimeout(function(){ t.className = ''; }, 3500);
+}
+function launch(a){
+  if (!window.tizen) { window.location.href = a.u; return; }
+  tizen.application.launch(a.id, function(){}, function(){
+    toast('No se pudo abrir ' + a.n + '. Revisá su ID en APPS.');
+  });
+}
+
+function wake(){
+  document.body.className = '';
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(function(){ document.body.className = 'idle'; }, IDLE_SECONDS * 1000);
+}
+wake();
+
+document.addEventListener('keydown', function(e){
+  var wasIdle = document.body.className === 'idle';
+  wake();
+  try{var el=document.documentElement,rf=el.requestFullscreen||el.webkitRequestFullscreen;if(rf&&!window.tizen&&!document.fullscreenElement&&!document.webkitFullscreenElement)rf.call(el);}catch(x){}
+  if (wasIdle) return;               // la primera tecla solo despierta
+  if (e.keyCode === 37) focusTile(sel - 1);
+  else if (e.keyCode === 39) focusTile(sel + 1);
+  else if (e.keyCode === 13) launch(APPS[sel]);
+  else if (e.keyCode === 10009 && window.tizen) tizen.application.getCurrentApplication().exit();
+});
+
+// Imprime en consola los IDs de tus apps instaladas (útil para completar APPS)
+if (window.tizen) tizen.application.getAppsInfo(function(l){
+  console.log(l.map(function(a){return a.name + ': ' + a.id}).join('\n'));
+});
+</script>
+</body></html>

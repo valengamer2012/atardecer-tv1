@@ -1,0 +1,10 @@
+{
+  "name": "atardecer-tv",
+  "version": "1.0.0",
+  "description": "Pantalla de inicio para Samsung TV: reloj, clima, fila de apps y modo reposo.",
+  "license": "MIT",
+  "packageType": "app",
+  "appName": "Atardecer",
+  "appPath": "app/index.html",
+  "keys": []
+}

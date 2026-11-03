@@ -3,17 +3,26 @@
 <meta name="viewport" content="width=1920,height=1080">
 <style>
 html,body{margin:0;height:100%;overflow:hidden;background:#14112b;color:#fff6ee;font-family:"Helvetica Neue",Helvetica,Arial,sans-serif}
-#sky{position:fixed;top:0;left:0;right:0;bottom:0;background:linear-gradient(180deg,#1b1a3d 0%,#4a2a63 25%,#b04e6a 50%,#f08a5d 72%,#f7c07a 86%,#1b1a3d 100%);background-size:100% 200%;animation:drift 180s linear infinite alternate}
+#sky{position:fixed;top:0;left:0;right:0;bottom:0;background-size:100% 200%;animation:drift 180s linear infinite alternate}
 @keyframes drift{from{background-position:0 0}to{background-position:0 100%}}
-#clock{position:absolute;left:0;right:0;top:12vh;text-align:center;font-size:17vw;line-height:1;font-weight:200;letter-spacing:-.02em;font-variant-numeric:tabular-nums;text-shadow:0 .4vw 3vw rgba(20,10,40,.35);animation:float 90s ease-in-out infinite alternate}
-body:not(.idle) #clock{animation:none}
+#clock{position:absolute;left:0;right:0;top:12vh;text-align:center;font-size:17vw;line-height:1;font-weight:200;letter-spacing:-.02em;font-variant-numeric:tabular-nums;text-shadow:0 .4vw 3vw rgba(20,10,40,.35);transition:opacity .6s}
+body.idle #clock{animation:float 90s ease-in-out infinite alternate}
 @keyframes float{from{transform:translate(-6vw,-4vh)}to{transform:translate(6vw,22vh)}}
 #info{position:absolute;left:0;right:0;top:46vh;text-align:center;font-size:2.4vw;font-weight:300;transition:opacity 1.2s}
 #info span{display:inline-block;margin:0 1.2vw;opacity:.85}
 #dock{position:absolute;left:0;right:0;bottom:10vh;text-align:center;white-space:nowrap;transition:opacity 1.2s}
-.tile{display:inline-block;width:13vw;height:7.4vw;margin:0 .8vw;border-radius:1.2vw;line-height:7.4vw;font-size:1.7vw;font-weight:600;color:#fff;background:#333;opacity:.82;transition:transform .18s,opacity .18s,box-shadow .18s}
+.tile{display:inline-block;width:12vw;height:7vw;margin:0 .7vw;border-radius:1.2vw;line-height:7vw;font-size:1.6vw;font-weight:600;color:#fff;overflow:hidden;opacity:.85;transition:transform .18s,opacity .18s,box-shadow .18s}
 .tile.on{transform:scale(1.14);opacity:1;box-shadow:0 0 0 .22vw #fff6ee,0 1.2vw 3vw rgba(0,0,0,.45)}
 body.idle #info,body.idle #dock{opacity:0}
+#panel{position:absolute;left:16vw;right:16vw;top:7vh;bottom:7vh;background:rgba(18,14,40,.86);border-radius:2vw;padding:2.5vw 3vw;display:none;font-size:1.8vw}
+body.panel #panel{display:block}
+body.panel #clock,body.panel #info,body.panel #dock{opacity:0}
+#panel h2{margin:0 0 1.5vw;font-size:2.6vw;font-weight:300}
+.row{height:4.2vw;line-height:4.2vw;padding:0 1.5vw;border-radius:1vw;margin-bottom:.5vw;white-space:nowrap;overflow:hidden}
+.row.on{background:rgba(255,246,238,.22);box-shadow:0 0 0 .15vw #fff6ee}
+.row small{opacity:.55;font-size:1.2vw;margin-left:1.5vw}
+.row b{float:right;font-weight:400}
+.hint{position:absolute;left:3vw;bottom:1.8vw;font-size:1.3vw;opacity:.6}
 #toast{position:absolute;left:0;right:0;bottom:3vh;text-align:center;font-size:1.5vw;opacity:0;transition:opacity .4s}
 #toast.show{opacity:1}
 </style></head>
@@ -22,32 +31,65 @@ body.idle #info,body.idle #dock{opacity:0}
 <div id="clock">--:--</div>
 <div id="info"><span id="date"></span><span id="wx"></span></div>
 <div id="dock"></div>
+<div id="panel"></div>
 <div id="toast"></div>
 <script>
 // ---- Ajustá esto a tu gusto ----
 var LAT = -34.61, LON = -58.38;      // ubicación para el clima (Buenos Aires)
 var IDLE_SECONDS = 45;               // segundos hasta el modo reposo
-var APPS = [                         // id = app nativa (solo modo .wgt), u = web (modo navegador)
-  {n:'Netflix',     id:'3201907018807', u:'https://www.netflix.com',     c:'#e50914'},
-  {n:'YouTube',     id:'111299001912',  u:'https://www.youtube.com/tv',  c:'#d4002a'},
-  {n:'Prime Video', id:'3201910019365', u:'https://www.primevideo.com',  c:'#0b86b8'},
-  {n:'Disney+',     id:'3201901017640', u:'https://www.disneyplus.com',  c:'#113ccf'},
-  {n:'Spotify',     id:'3201606009684', u:'https://open.spotify.com',    c:'#1a9e49'}
+var DEFAULTS = [                     // apps iniciales: se buscan por nombre entre las instaladas
+  {n:'Netflix',     re:/netflix/i,  id:'3201907018807'},
+  {n:'YouTube',     re:/^youtube$/i, id:'111299001912'},
+  {n:'Prime Video', re:/prime/i,    id:'3201910019365'},
+  {n:'Disney+',     re:/disney/i,   id:'3201901017640'},
+  {n:'Spotify',     re:/spotify/i,  id:'3201606009684'}
+];
+var WALLS = [
+  {n:'Atardecer', g:'#1b1a3d 0%,#4a2a63 25%,#b04e6a 50%,#f08a5d 72%,#f7c07a 86%,#1b1a3d 100%'},
+  {n:'Aurora',    g:'#04141f 0%,#0b4d4a 30%,#2fa37a 55%,#6b4fbf 80%,#04141f 100%'},
+  {n:'Océano',    g:'#031a33 0%,#0a4a7a 35%,#2b8fb5 60%,#9fe0e6 85%,#031a33 100%'},
+  {n:'Noche',     g:'#05050f 0%,#12122e 50%,#2a1f4f 80%,#05050f 100%'},
+  {n:'Bosque',    g:'#0b1f14 0%,#1d4a2e 35%,#5f8f4f 65%,#d9c27a 88%,#0b1f14 100%'},
+  {n:'Brasas',    g:'#1a0a0a 0%,#5a1414 30%,#c2410c 60%,#f59e0b 85%,#1a0a0a 100%'}
 ];
 // --------------------------------
 var $ = function(i){return document.getElementById(i)};
-var sel = 0, idleTimer, tiles = [];
+var B = document.body, sel = 0, pc = 0, idleTimer, tiles = [], inst = [], panelOpen = false;
 
-APPS.forEach(function(a, i){
-  var t = document.createElement('div');
-  t.className = 'tile'; t.textContent = a.n; t.style.background = a.c;
-  $('dock').appendChild(t); tiles.push(t);
-});
+function load(){ try { return JSON.parse(localStorage.getItem('atd')) || {}; } catch(e){ return {}; } }
+function save(){ try { localStorage.setItem('atd', JSON.stringify(cfg)); } catch(e){} }
+var cfg = load();
+if (typeof cfg.bg !== 'number' || !WALLS[cfg.bg]) cfg.bg = 0;
+if (!cfg.pins) cfg.pins = DEFAULTS.map(function(d){return {n:d.n, id:d.id}});
+
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function color(n){
+  var k = [[/netflix/i,'#e50914'],[/youtube/i,'#d4002a'],[/prime/i,'#0b86b8'],[/disney/i,'#113ccf'],[/spotify/i,'#1a9e49'],[/apple/i,'#3a3a3c'],[/max|hbo/i,'#5b2be0']];
+  for (var i = 0; i < k.length; i++) if (k[i][0].test(n)) return k[i][1];
+  var h = 0; for (var j = 0; j < n.length; j++) h = (h * 31 + n.charCodeAt(j)) % 360;
+  return 'hsl(' + h + ',50%,38%)';
+}
+function applyBg(){
+  var s = $('sky').style;
+  s.background = 'linear-gradient(180deg,' + WALLS[cfg.bg].g + ')';
+  s.backgroundSize = '100% 200%';
+}
+applyBg();
+
+function renderDock(){
+  var d = $('dock'); d.innerHTML = ''; tiles = [];
+  cfg.pins.concat([{n:'Ajustes', set:1}]).forEach(function(a){
+    var t = document.createElement('div');
+    t.className = 'tile'; t.textContent = a.n;
+    t.style.background = a.set ? 'rgba(255,246,238,.2)' : color(a.n);
+    d.appendChild(t); tiles.push(t);
+  });
+  focusTile(sel);
+}
 function focusTile(i){
-  sel = (i + APPS.length) % APPS.length;
+  sel = (i + tiles.length) % tiles.length;
   tiles.forEach(function(t, k){ t.className = 'tile' + (k === sel ? ' on' : ''); });
 }
-focusTile(0);
 
 function pad(n){return n < 10 ? '0' + n : '' + n}
 function tick(){
@@ -73,10 +115,8 @@ function wxText(c){
 function weather(){
   fetch('https://api.open-meteo.com/v1/forecast?latitude=' + LAT + '&longitude=' + LON + '&current=temperature_2m,weather_code&timezone=auto')
     .then(function(r){return r.json()})
-    .then(function(j){
-      var c = j.current;
-      $('wx').textContent = Math.round(c.temperature_2m) + '°  ' + wxText(c.weather_code);
-    }).catch(function(){ $('wx').textContent = ''; });
+    .then(function(j){ var c = j.current; $('wx').textContent = Math.round(c.temperature_2m) + '°  ' + wxText(c.weather_code); })
+    .catch(function(){ $('wx').textContent = ''; });
 }
 weather(); setInterval(weather, 15 * 60 * 1000);
 
@@ -84,34 +124,91 @@ function toast(msg){
   var t = $('toast'); t.textContent = msg; t.className = 'show';
   setTimeout(function(){ t.className = ''; }, 3500);
 }
+
+// ---- Apps instaladas: se leen de la TV, sin adivinar IDs ----
+var TOP = /netflix|youtube|prime|disney|spotify|apple|max|hbo|twitch|plex|kodi|xbox|geforce|steam|crunchyroll|pluto|paramount|tiktok|star/i;
+function cmp(a, b){
+  var x = TOP.test(a.name) ? 0 : 1, y = TOP.test(b.name) ? 0 : 1;
+  return x - y || a.name.localeCompare(b.name);
+}
+function loadApps(){
+  if (!window.tizen || !tizen.application || !tizen.application.getAppsInfo) return;
+  try {
+    tizen.application.getAppsInfo(function(l){
+      inst = l.filter(function(a){ return a.name && a.show !== false; }).sort(cmp);
+      if (!cfg.saved) {                 // primera vez: usar los IDs reales por nombre
+        var pins = [];
+        DEFAULTS.forEach(function(d){
+          for (var i = 0; i < inst.length; i++) if (d.re.test(inst[i].name)) { pins.push({n:inst[i].name, id:inst[i].id}); return; }
+        });
+        if (pins.length) cfg.pins = pins;
+        cfg.saved = true; save(); renderDock();
+      }
+    }, function(){});
+  } catch(e){}
+}
+
+function pinned(id){ return cfg.pins.some(function(p){return p.id === id}); }
+function togglePin(a){
+  if (pinned(a.id)) cfg.pins = cfg.pins.filter(function(p){return p.id !== a.id});
+  else cfg.pins.push({n:a.name, id:a.id});
+  cfg.saved = true; save();
+}
+function renderPanel(){
+  var rows = [{k:'bg'}].concat(inst.map(function(a){return {k:'app', a:a}}));
+  var s = Math.max(0, Math.min(pc - 3, rows.length - 7)), h = '<h2>Ajustes</h2>';
+  for (var i = s; i < Math.min(s + 7, rows.length); i++) {
+    var r = rows[i], on = i === pc ? ' on' : '';
+    if (r.k === 'bg') h += '<div class="row' + on + '">Fondo<b>‹  ' + WALLS[cfg.bg].n + '  ›</b></div>';
+    else h += '<div class="row' + on + '">' + esc(r.a.name) + '<small>' + esc(r.a.id) + '</small><b>' + (pinned(r.a.id) ? 'Fijada' : '') + '</b></div>';
+  }
+  if (!inst.length) h += '<div class="row">No pude leer las apps instaladas<small>se usa la lista por defecto</small></div>';
+  $('panel').innerHTML = h + '<div class="hint">Arriba y abajo: mover   OK: fijar o quitar app   Izquierda y derecha: cambiar fondo   Atrás: cerrar</div>';
+}
+function openPanel(){ panelOpen = true; pc = 0; B.classList.add('panel'); renderPanel(); }
+function closePanel(){ panelOpen = false; B.classList.remove('panel'); renderDock(); }
+
 function launch(a){
-  if (!window.tizen) { window.location.href = a.u; return; }
+  if (a.set) { openPanel(); return; }
+  if (!window.tizen) { toast('Estás en el navegador: ' + a.n + ' solo abre en la TV'); return; }
   tizen.application.launch(a.id, function(){}, function(){
-    toast('No se pudo abrir ' + a.n + '. Revisá su ID en APPS.');
+    toast('No se pudo abrir ' + a.n + '. Probá fijarla de nuevo desde Ajustes.');
   });
 }
 
 function wake(){
-  document.body.className = '';
+  B.classList.remove('idle');
   clearTimeout(idleTimer);
-  idleTimer = setTimeout(function(){ document.body.className = 'idle'; }, IDLE_SECONDS * 1000);
+  idleTimer = setTimeout(function(){ if (!panelOpen) B.classList.add('idle'); }, IDLE_SECONDS * 1000);
 }
 wake();
 
 document.addEventListener('keydown', function(e){
-  var wasIdle = document.body.className === 'idle';
+  var wasIdle = B.classList.contains('idle');
   wake();
-  try{var el=document.documentElement,rf=el.requestFullscreen||el.webkitRequestFullscreen;if(rf&&!window.tizen&&!document.fullscreenElement&&!document.webkitFullscreenElement)rf.call(el);}catch(x){}
   if (wasIdle) return;               // la primera tecla solo despierta
-  if (e.keyCode === 37) focusTile(sel - 1);
-  else if (e.keyCode === 39) focusTile(sel + 1);
-  else if (e.keyCode === 13) launch(APPS[sel]);
-  else if (e.keyCode === 10009 && window.tizen) tizen.application.getCurrentApplication().exit();
+  var k = e.keyCode;
+  if (panelOpen) {
+    var n = inst.length + 1;
+    if (k === 38) pc = Math.max(0, pc - 1);
+    else if (k === 40) pc = Math.min(n - 1, pc + 1);
+    else if (k === 37 || k === 39) {
+      if (pc === 0) { cfg.bg = (cfg.bg + (k === 39 ? 1 : WALLS.length - 1)) % WALLS.length; save(); applyBg(); }
+      else pc = Math.max(0, Math.min(n - 1, pc + (k === 39 ? 5 : -5)));
+    }
+    else if (k === 13 && pc > 0) togglePin(inst[pc - 1]);
+    else if (k === 13 && pc === 0) { cfg.bg = (cfg.bg + 1) % WALLS.length; save(); applyBg(); }
+    else if (k === 10009 || k === 8 || k === 27) { closePanel(); return; }
+    renderPanel();
+    return;
+  }
+  if (k === 37) focusTile(sel - 1);
+  else if (k === 39) focusTile(sel + 1);
+  else if (k === 13) launch(cfg.pins.concat([{n:'Ajustes', set:1}])[sel]);
+  else if (k === 10009 && window.tizen) tizen.application.getCurrentApplication().exit();
 });
 
-// Imprime en consola los IDs de tus apps instaladas (útil para completar APPS)
-if (window.tizen) tizen.application.getAppsInfo(function(l){
-  console.log(l.map(function(a){return a.name + ': ' + a.id}).join('\n'));
-});
+renderDock();
+loadApps();
 </script>
 </body></html>
